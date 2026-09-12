@@ -14,6 +14,49 @@ SELF_DIR="${SELF%/*}"
 die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit "${2:-1}"; }
 
 # --------------------------------------------------------------------------
+# date: GNU (Linux, or Homebrew coreutils as gdate) or BSD (stock macOS)
+# --------------------------------------------------------------------------
+if date -d @0 +%s >/dev/null 2>&1; then
+    GNU_DATE="date"
+elif command -v gdate >/dev/null 2>&1; then
+    GNU_DATE="gdate"
+else
+    GNU_DATE=""
+fi
+
+# fmt_epoch EPOCH FORMAT — print an epoch in the given strftime format
+fmt_epoch() {
+    if [[ -n "$GNU_DATE" ]]; then
+        "$GNU_DATE" -d "@$1" "$2"
+    else
+        date -r "$1" "$2"
+    fi
+}
+
+# parse_date STRING — print the epoch of a date string, or fail.
+# GNU date takes anything 'date -d' understands. BSD date takes
+# YYYY-MM-DD, optionally followed by HH:MM or HH:MM:SS, or @EPOCH.
+parse_date() {
+    local s="$1"
+    if [[ -n "$GNU_DATE" ]]; then
+        "$GNU_DATE" -d "$s" +%s 2>/dev/null
+        return
+    fi
+    if [[ "$s" == @* ]]; then
+        printf '%s\n' "${s#@}"
+        return
+    fi
+    # BSD date -j -f fills missing fields from the current time, so pad
+    # a bare date to midnight and a bare HH:MM to HH:MM:00 first.
+    case "$s" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) s="$s 00:00:00" ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][T\ ][0-9][0-9]:[0-9][0-9]) s="$s:00" ;;
+    esac
+    s="${s/T/ }"
+    date -j -f '%Y-%m-%d %H:%M:%S' "$s" +%s 2>/dev/null
+}
+
+# --------------------------------------------------------------------------
 # status groups
 # --------------------------------------------------------------------------
 BLOCKED_SET="GRAVITY GRAVITY_CNAME DENYLIST DENYLIST_CNAME REGEX REGEX_CNAME
@@ -43,7 +86,8 @@ Options:
                        or a comma separated list of FTL statuses
                        (e.g. GRAVITY,DENYLIST)
   -t, --hours N        time window, hours back from now (default: 24)
-      --since TS       absolute start, any format 'date -d' accepts
+      --since TS       absolute start: YYYY-MM-DD[ HH:MM[:SS]] or @EPOCH
+                       (with GNU date, any format 'date -d' accepts)
       --until TS       absolute end (default: now)
   -d, --domain REGEX   keep only the domains that match REGEX
   -n, --top N          keep only the first N rows
@@ -204,7 +248,8 @@ fi
 # status set
 # --------------------------------------------------------------------------
 resolve_status() {
-    local want="${1,,}" s out=""
+    local want s out=""
+    want="$(tr '[:upper:]' '[:lower:]' <<<"$1")"
     case "$want" in
         blocked) echo "$BLOCKED_SET"; return ;;
         allowed|forwarded) echo "$ALLOWED_SET"; return ;;
@@ -212,7 +257,7 @@ resolve_status() {
         all)     echo ""; return ;;
     esac
     for s in ${1//,/ }; do
-        s="${s^^}"
+        s="$(tr '[:lower:]' '[:upper:]' <<<"$s")"
         [[ " $KNOWN_SET " == *" $s "* ]] || die "unknown status: $s (try: blocked, allowed, cached, all, or an FTL status)"
         out="$out $s"
     done
@@ -228,13 +273,13 @@ STATUS_JSON="$(printf '%s\n' $WANTED | jq -Rsc 'split("\n") | map(select(length 
 # --------------------------------------------------------------------------
 NOW="$(date +%s)"
 if [[ -n "$UNTIL" ]]; then
-    TO="$(date -d "$UNTIL" +%s 2>/dev/null)" || die "--until is not a readable date: $UNTIL"
+    TO="$(parse_date "$UNTIL")" || die "--until is not a readable date: $UNTIL"
 else
     TO="$NOW"
 fi
 if [[ -n "$SINCE" ]]; then
-    FROM="$(date -d "$SINCE" +%s 2>/dev/null)" || die "--since is not a readable date: $SINCE"
-    WINDOW="from $(date -d "@$FROM" '+%Y-%m-%d %H:%M') to $(date -d "@$TO" '+%Y-%m-%d %H:%M')"
+    FROM="$(parse_date "$SINCE")" || die "--since is not a readable date: $SINCE"
+    WINDOW="from $(fmt_epoch "$FROM" '+%Y-%m-%d %H:%M') to $(fmt_epoch "$TO" '+%Y-%m-%d %H:%M')"
 else
     FROM=$(( TO - HOURS * 3600 ))
     WINDOW="last $HOURS h"
@@ -1062,7 +1107,7 @@ case "$FORMAT" in
     fi
     jq -r '.[] | [.domain, (.client // "-"), .hits, .last] | @tsv' <<<"$GROUPED" \
     | while IFS=$'\t' read -r d c n t; do
-          seen="$(date -d "@${t%.*}" '+%Y-%m-%d %H:%M')"
+          seen="$(fmt_epoch "${t%.*}" '+%Y-%m-%d %H:%M')"
           if [[ "$BYCLIENT" == "true" ]]; then
               printf '%-52s %-16s %7s  %s\n' "$d" "$c" "$n" "$seen"
           else

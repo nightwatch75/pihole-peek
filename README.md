@@ -30,7 +30,10 @@ Pi-hole v6 only. Version 5 used `admin/api.php` with an auth token, which this t
 
 ## Requirements
 
-`bash` 4.2 or later, `curl`, `jq` 1.6 or later (it uses `$ARGS.named`), and the GNU `date` command.
+`bash` 3.2 or later, `curl`, and `jq` 1.6 or later (it uses `$ARGS.named`). It runs on a stock
+macOS install. With GNU `date` (Linux, or Homebrew `coreutils`) the `--since` and `--until`
+options take anything `date -d` understands; with BSD `date` they take `YYYY-MM-DD`, optionally
+followed by ` HH:MM` or ` HH:MM:SS`, or `@EPOCH`.
 
 **Tested on Pi-hole core v6.4.3 with FTL v6.7.** That is the only build it has been run against. The
 v6 API is stable across the 6.x line, so other builds should work, but if one does not, open an
