@@ -42,8 +42,21 @@ class Lit(str):
     __slots__ = ()
 
 
+def _safe_text(raw):
+    """Bytes from the API, decoded leniently.
+
+    A malformed DNS query can make FTL log bytes that are not valid UTF-8,
+    and the JSON response carries them as-is. json.loads() on bytes decodes
+    strictly and would abort a whole run over one bad byte among tens of
+    thousands of queries; swap the invalid bytes for U+FFFD instead.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        return raw.decode("utf-8", "replace")
+    return raw
+
+
 def jload(data):
-    return json.loads(data, parse_float=Lit)
+    return json.loads(_safe_text(data), parse_float=Lit)
 
 
 def _query_hook(pairs):
@@ -72,7 +85,7 @@ def _query_hook(pairs):
 
 
 def jload_queries(data):
-    return json.loads(data, parse_float=Lit, object_pairs_hook=_query_hook)
+    return json.loads(_safe_text(data), parse_float=Lit, object_pairs_hook=_query_hook)
 
 
 def _jstr(s):
@@ -521,7 +534,7 @@ def collect(api, query, want, domain_re, byclient, page_size, raw_out):
     start = 0
     while True:
         rawd = api.get_raw("%s&length=%d&start=%d" % (query, page_size, start))
-        page = json.loads(rawd) if raw_out else jload_queries(rawd)
+        page = json.loads(_safe_text(rawd)) if raw_out else jload_queries(rawd)
         if total is None:
             total = page.get("recordsFiltered")
             if not isinstance(total, int):
