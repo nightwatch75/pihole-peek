@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-VERSION="2.3.0"
+VERSION="2.3.1"
 PROG="${0##*/}"
 SELF="$(readlink -f "$0")"
 SELF_DIR="${SELF%/*}"

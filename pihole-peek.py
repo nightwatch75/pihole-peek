@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 PROG = os.path.basename(sys.argv[0]) or "pihole-peek"
 SELF = os.path.realpath(os.path.abspath(__file__))
 SELF_DIR = os.path.dirname(SELF)
@@ -612,17 +612,30 @@ def csv_field(v):
     return '"%s"' % str(v).replace('"', '""')
 
 
+def bpad(s, width):
+    """Pad on the right the way the shell does.
+
+    bash printf "%-52s" counts bytes, Python "%-52s" counts characters, so a
+    domain with one non-ASCII character puts the next column two spaces further
+    along here than there. It takes an invalid byte replaced by U+FFFD, or a
+    name that is not plain ASCII, and then the two counts differ.
+    """
+    s = str(s)
+    return s + " " * max(0, width - len(s.encode("utf-8")))
+
+
 def render_count(rows, byclient, client, status, window, out):
     if byclient:
-        out.write("%-52s %-16s %7s  %s\n" % ("DOMAIN", "CLIENT", "HITS", "LAST SEEN"))
+        out.write("%s %s %7s  %s\n" % (bpad("DOMAIN", 52), bpad("CLIENT", 16), "HITS", "LAST SEEN"))
     else:
-        out.write("%-52s %7s  %s\n" % ("DOMAIN", "HITS", "LAST SEEN"))
+        out.write("%s %7s  %s\n" % (bpad("DOMAIN", 52), "HITS", "LAST SEEN"))
     for r in rows:
         seen = fmt_epoch(str(r["last"]).split(".")[0])
         if byclient:
-            out.write("%-52s %-16s %7s  %s\n" % (r["domain"], r["client"] or "-", r["hits"], seen))
+            out.write("%s %s %7s  %s\n"
+                      % (bpad(r["domain"], 52), bpad(r["client"] or "-", 16), r["hits"], seen))
         else:
-            out.write("%-52s %7s  %s\n" % (r["domain"], r["hits"], seen))
+            out.write("%s %7s  %s\n" % (bpad(r["domain"], 52), r["hits"], seen))
     ndom = len(set(r["domain"] for r in rows))
     nhit = sum(r["hits"] for r in rows)
     out.write("\n%s · %s · %d domain%s · %d quer%s · %s\n"
