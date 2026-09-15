@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "2.3.1"
+VERSION = "2.4.0"
 PROG = os.path.basename(sys.argv[0]) or "pihole-peek"
 SELF = os.path.realpath(os.path.abspath(__file__))
 SELF_DIR = os.path.dirname(SELF)

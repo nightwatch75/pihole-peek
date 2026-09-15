@@ -1,6 +1,6 @@
 # pihole-peek
 
-**Version 2.3.1** · Pi-hole v6 · MIT · [what changed](#versions)
+**Version 2.4.0** · Pi-hole v6 · MIT · [what changed](#versions)
 
 A small tool that asks the **Pi-hole v6 REST API** which domains a client resolved, and groups the
 answer by domain. It tells you what a device on your network talks to — the smart TV that phones
@@ -459,7 +459,8 @@ So a cron job can tell "nothing matched" from "the Pi-hole is down".
 
 | Version | What changed |
 |---|---|
-| **2.3.1** | `pihole-peek.py` no longer stops on a byte that is not valid UTF-8. A malformed DNS query can make FTL log one, and strict decoding then ended a whole run of a hundred thousand queries with `UnicodeDecodeError`. The byte becomes `U+FFFD` in that one domain instead, which is what the bash script has always done through `jq`. Thanks to [@gbarwis](https://github.com/gbarwis). The `count` table also lines its columns up the same way in both scripts when a domain is not plain ASCII. |
+| **2.4.0** | `--client-names` writes each client's DHCP/DNS name in place of its address, in the CLIENT column and in the HTML report's client filter, and falls back to the address for a client the Pi-hole has no name for. Off by default, so nothing that reads the `client` field of the csv or the json changes until you ask for it. Rows are still grouped by address, so two clients with no name stay apart. Thanks to [@gbarwis](https://github.com/gbarwis). |
+| 2.3.1 | `pihole-peek.py` no longer stops on a byte that is not valid UTF-8. A malformed DNS query can make FTL log one, and strict decoding then ended a whole run of a hundred thousand queries with `UnicodeDecodeError`. The byte becomes `U+FFFD` in that one domain instead, which is what the bash script has always done through `jq`. Thanks to [@gbarwis](https://github.com/gbarwis). The `count` table also lines its columns up the same way in both scripts when a domain is not plain ASCII. |
 | 2.3.0 | `pihole-peek.py`: a Python port that needs no `jq` and runs on Windows as it is. Four fixes in the bash script — rows tied on hits and domain now come out in the same order on every `awk`; `-f count` no longer starts `date` once per row, which made that format three times faster; the environment now wins over the config file for every documented variable, as the help text always promised; `@color` and `@about` in `categories.local` now win over the shipped file, as its rules already did. |
 | 2.2.0 | Reads the whole window. Earlier versions stopped at the 10000 queries the API returns per request, and reported the short total in silence. |
 | 2.1.0 | Runs on a stock macOS: no `bash` 4, no GNU `date`. |
