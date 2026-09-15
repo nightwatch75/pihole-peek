@@ -172,6 +172,7 @@ pihole-peek -f raw | jq '.queries[] | .upstream'     # raw API answer, your own 
 | `--page-size N` | `PIHOLE_PAGE_SIZE` | `10000` | queries per API request. The server never returns more than 10000; lower it to use less memory on a small box. |
 | `--categories F` | `PIHOLE_PEEK_CATEGORIES` | a file named `categories` next to the script | the category rules of the HTML report; the rules in `F.local` are read first and win |
 | `--list-clients` | — | — | list the clients the Pi-hole knows, with their query count, and exit |
+| `--client-names` | `PIHOLE_CLIENT_NAMES` | off | show each client's DHCP/DNS name instead of its address, in the CLIENT column and, for the HTML report, the client filter too. Falls back to the address when a client has no known name. |
 | `-k`, `--insecure` | `PIHOLE_INSECURE` | off | accept a self-signed TLS certificate |
 | `--totp CODE` | — | — | two-factor code, when the Pi-hole asks for one |
 | — | `PIHOLE_PASSWORD` | — | web or app password. There is no flag for it, so it never lands in your shell history. |

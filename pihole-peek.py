@@ -60,16 +60,16 @@ def jload(data):
 
 
 def _query_hook(pairs):
-    """Keep four fields of a query, drop the rest before it is ever built.
+    """Keep five fields of a query, drop the rest before it is ever built.
 
     json.loads would otherwise make one dict per query and three more inside it
     (reply, client, ede): ten thousand of those, the size of a page, live at
     once. This hook runs on every object the parser finishes, so a query leaves
-    it as a four-item tuple and nothing else is kept. A page then costs its own
+    it as a five-item tuple and nothing else is kept. A page then costs its own
     text, not a tree.
     """
     dom = st = t = None
-    ip = ""
+    ip = name = ""
     for k, v in pairs:
         if k == "domain":
             dom = v
@@ -78,10 +78,12 @@ def _query_hook(pairs):
         elif k == "time":
             t = v
         elif k == "client":
-            ip = (v or {}).get("ip") or ""
+            cl = v or {}
+            ip = cl.get("ip") or ""
+            name = cl.get("name") or ""
     if dom is None:
         return dict(pairs)          # reply, client, ede, or the page itself
-    return (dom, ip, st, t)
+    return (dom, ip, st, t, name)
 
 
 def jload_queries(data):
@@ -227,6 +229,10 @@ Options:
                        'categories' next to this script; the rules in F.local,
                        when it exists, are tried first and win)
       --list-clients   list the clients known to the Pi-hole and exit
+      --client-names   show each client's DHCP/DNS name instead of its address,
+                       in the CLIENT column and, for the html report, the
+                       client filter too; falls back to the address when a
+                       client has no known name
   -k, --insecure       accept a self-signed TLS certificate
       --totp CODE      two-factor code, if the Pi-hole asks for it
   -V, --version        print the version and exit
@@ -242,6 +248,7 @@ Environment:
                        'config' next to this script)
   PIHOLE_PEEK_CATEGORIES  same as --categories
   PIHOLE_PAGE_SIZE     same as --page-size
+  PIHOLE_CLIENT_NAMES  same as --client-names ("1" to turn it on)
 
 Precedence: command line > environment > config file.
 
@@ -431,6 +438,7 @@ def parse_args(argv, cfg, env):
         "hours": setting("PIHOLE_HOURS", "24"),
         "format": setting("PIHOLE_FORMAT", "count"),
         "insecure": setting("PIHOLE_INSECURE", "0") == "1",
+        "client_names": setting("PIHOLE_CLIENT_NAMES", "0") == "1",
         "page_size": setting("PIHOLE_PAGE_SIZE", "10000"),
         "categories": setting("PIHOLE_PEEK_CATEGORIES"),
         "since": "", "until": "", "domain": "", "top": "0",
@@ -479,6 +487,8 @@ def parse_args(argv, cfg, env):
             o["list_clients"] = True
         elif a in ("-k", "--insecure"):
             o["insecure"] = True
+        elif a == "--client-names":
+            o["client_names"] = True
         elif a == "--totp":
             o["totp"] = value(a, args)
         elif a in ("-V", "--version"):
@@ -547,19 +557,27 @@ def collect(api, query, want, domain_re, byclient, page_size, raw_out):
             sys.stdout.buffer.write(rawd)
             sys.stdout.buffer.write(b"\n")
         else:
-            for dom, ip, st, t in queries:
+            for dom, ip, st, t, name in queries:
                 if wanted and st not in wanted:
                     continue
                 if rx is not None and not rx.search(dom):
                     continue
+                # grouping stays keyed on the ip: it is the identity the API
+                # gives every query, while the name is only ever a label —
+                # two unnamed clients would otherwise merge under the same "-"
                 key = (dom, ip) if byclient else dom
                 tf = float(t)
                 e = agg.get(key)
                 if e is None:
-                    agg[key] = [dom, ip, 1, {st}, tf, t, tf, t]
+                    agg[key] = [dom, ip, 1, {st}, tf, t, tf, t, name]
                 else:
                     e[2] += 1
                     e[3].add(st)
+                    # queries arrive newest first: the first non-empty name
+                    # seen for this key is the most recently known one, and
+                    # is the name pihole-peek (bash) also keeps
+                    if not e[8] and name:
+                        e[8] = name
                     if tf < e[4]:
                         e[4], e[5] = tf, t
                     elif tf > e[6]:
@@ -582,12 +600,13 @@ def collect(api, query, want, domain_re, byclient, page_size, raw_out):
     return agg
 
 
-def to_rows(agg, byclient):
+def to_rows(agg, byclient, client_names=False):
     rows = []
     for e in agg.values():
+        client = (e[8] or e[1]) if client_names else e[1]
         rows.append({
             "domain": e[0],
-            "client": e[1] if byclient else None,
+            "client": client if byclient else None,
             "hits": e[2],
             "status": "|".join(sorted(e[3])),
             "first": e[5],
@@ -781,7 +800,7 @@ def main():
     finally:
         api.logout()
 
-    rows = to_rows(agg, byclient)
+    rows = to_rows(agg, byclient, o["client_names"])
     if int(o["top"]) > 0:
         rows = rows[:int(o["top"])]
     if not rows:

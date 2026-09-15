@@ -98,6 +98,10 @@ Options:
                        'categories' next to this script; the rules in F.local,
                        when it exists, are tried first and win)
       --list-clients   list the clients known to the Pi-hole and exit
+      --client-names   show each client's DHCP/DNS name instead of its address,
+                       in the CLIENT column and, for the html report, the
+                       client filter too; falls back to the address when a
+                       client has no known name
   -k, --insecure       accept a self-signed TLS certificate
       --totp CODE      two-factor code, if the Pi-hole asks for it
   -V, --version        print the version and exit
@@ -113,6 +117,7 @@ Environment:
                        'config' next to this script)
   PIHOLE_PEEK_CATEGORIES  same as --categories
   PIHOLE_PAGE_SIZE     same as --page-size
+  PIHOLE_CLIENT_NAMES  same as --client-names ("1" to turn it on)
 
 Precedence: command line > environment > config file.
 
@@ -129,7 +134,7 @@ EOF
 # text promises. bash 3.2 has no name references, hence the eval.
 PEEK_VARS="PIHOLE_URL PIHOLE_CLIENT PIHOLE_ALIAS PIHOLE_PASSWORD PIHOLE_STATUS
            PIHOLE_HOURS PIHOLE_FORMAT PIHOLE_INSECURE PIHOLE_PAGE_SIZE
-           PIHOLE_PEEK_CATEGORIES"
+           PIHOLE_PEEK_CATEGORIES PIHOLE_CLIENT_NAMES"
 for v in $PEEK_VARS; do
     eval "peek_env_$v=\"\${$v:-}\""
 done
@@ -152,6 +157,7 @@ STATUS="${PIHOLE_STATUS:-all}"
 HOURS="${PIHOLE_HOURS:-24}"
 FORMAT="${PIHOLE_FORMAT:-count}"
 INSECURE="${PIHOLE_INSECURE:-0}"
+CLIENT_NAMES="${PIHOLE_CLIENT_NAMES:-0}"
 SINCE=""
 UNTIL=""
 DOMAIN_RE=""
@@ -177,6 +183,7 @@ while [[ $# -gt 0 ]]; do
         -f|--format)   FORMAT="${2:?--format needs a value}"; shift 2 ;;
         --categories)  CATEGORIES="${2:?--categories needs a value}"; shift 2 ;;
         --list-clients) LIST_CLIENTS=1; shift ;;
+        --client-names) CLIENT_NAMES=1; shift ;;
         -k|--insecure) INSECURE=1; shift ;;
         --totp)        TOTP="${2:?--totp needs a value}"; shift 2 ;;
         -V|--version)  printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
@@ -189,6 +196,11 @@ done
 command -v curl >/dev/null || die "curl is necessary"
 command -v jq   >/dev/null || die "jq is necessary"
 command -v awk  >/dev/null || die "awk is necessary"
+
+# --argjson below hands this straight to jq, which needs valid JSON (0 or 1)
+# and not just any truthy string — normalise it here instead of failing deep
+# inside the aggregation pipeline on a config file typo like "yes"
+[[ "$CLIENT_NAMES" == "1" ]] || CLIENT_NAMES=0
 
 [[ -n "$URL" ]] || { usage >&2; die "no Pi-hole address: use --url, PIHOLE_URL or the config file"; }
 [[ "$URL" == http://* || "$URL" == https://* ]] || URL="http://$URL"
@@ -362,7 +374,7 @@ while :; do
             .queries[]
             | select(($want | length) == 0 or (.status as $s | $want | index($s)))
             | select($re == "" or (.domain | test($re; "i")))
-            | [ .domain, (.client.ip // ""), .status, (.time | tostring) ] | @tsv' \
+            | [ .domain, (.client.ip // ""), .status, (.time | tostring), (.client.name // "") ] | @tsv' \
             "$PAGE_FILE" >> "$ROWS_FILE"
         n="$(jq '.queries | length' "$PAGE_FILE")"
     fi
@@ -400,16 +412,20 @@ GROUPED="$(awk -F'\t' -v byclient="$BYCLIENT" '
             st[key] = (st[key] == "" ? $3 : st[key] "|" $3)
         dom[key] = $1
         cli[key] = $2
+        # queries arrive newest first: the first non-empty name seen for
+        # this key is the most recently known one, and is the name
+        # pihole-peek.py also keeps
+        if (nam[key] == "") nam[key] = $5
     }
     END {
         for (key in hits)
-            printf "%s\t%s\t%d\t%s\t%s\t%s\n", dom[key], cli[key], hits[key], st[key], firstx[key], lastx[key]
+            printf "%s\t%s\t%d\t%s\t%s\t%s\t%s\n", dom[key], cli[key], hits[key], st[key], firstx[key], lastx[key], nam[key]
     }' "$ROWS_FILE" \
-| jq -R -s -c --argjson byclient "$BYCLIENT" '
+| jq -R -s -c --argjson byclient "$BYCLIENT" --argjson names "$CLIENT_NAMES" '
     split("\n")
     | map(select(length > 0) | split("\t"))
     | map({ domain: .[0],
-            client: (if $byclient then .[1] else null end),
+            client: (if $byclient then (if $names == 1 and .[6] != "" then .[6] else .[1] end) else null end),
             hits:   (.[2] | tonumber),
             status: (.[3] | split("|") | unique | join("|")),
             first:  (.[4] | tonumber),

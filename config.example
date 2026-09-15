@@ -28,3 +28,8 @@ PIHOLE_URL="http://pihole.example.lan"
 
 # Set to 1 to accept a self-signed TLS certificate (same as --insecure).
 #PIHOLE_INSECURE="0"
+
+# Set to 1 to show each client's DHCP/DNS name instead of its address, in the
+# CLIENT column and the html report's client filter (same as --client-names).
+# Falls back to the address when a client has no known name.
+#PIHOLE_CLIENT_NAMES="0"
